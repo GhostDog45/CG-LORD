@@ -35,6 +35,7 @@ export default function Home() {
             } else {
               // Stale ID from another session/database reset. Clear it and show the form!
               localStorage.removeItem('user_id');
+              localStorage.removeItem('user_token');
               setStep('form');
             }
           })
@@ -63,16 +64,21 @@ export default function Home() {
     setLoading(true);
     
     let userId = localStorage.getItem('user_id');
+    let userToken = localStorage.getItem('user_token');
     if (!userId) {
       userId = crypto.randomUUID();
       localStorage.setItem('user_id', userId);
+    }
+    if (!userToken) {
+      userToken = crypto.randomUUID();
+      localStorage.setItem('user_token', userToken);
     }
 
     try {
       const res = await fetch('/api/cgs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: userId, cg: val }),
+        body: JSON.stringify({ id: userId, cg: val, secret_token: userToken }),
       });
       
       if (res.ok) {

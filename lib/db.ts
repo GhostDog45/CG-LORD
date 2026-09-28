@@ -21,8 +21,13 @@ export async function ensureTableExists() {
         id TEXT PRIMARY KEY,
         cg NUMERIC(4, 2) NOT NULL,
         timestamp BIGINT NOT NULL,
-        ip TEXT NOT NULL
+        ip TEXT NOT NULL,
+        secret_token TEXT
       );
+    `;
+    // Ensure column exists for backwards compatibility
+    await sql`
+      ALTER TABLE cgs ADD COLUMN IF NOT EXISTS secret_token TEXT;
     `;
     isInitialized = true;
   } catch (error) {
