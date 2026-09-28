@@ -107,7 +107,7 @@ export async function POST(req: Request) {
 
     // A. Check by ID
     const existingById = await sql`
-      SELECT id, secret_token, ip, fingerprint FROM cgs WHERE id = ${id} LIMIT 1
+      SELECT id, secret_token, ip, fingerprint, change_count, window_start FROM cgs WHERE id = ${id} LIMIT 1
     `;
     if (existingById.length > 0) {
       existingRecord = existingById[0];
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
     // B. Check by Device Fingerprint
     if (!existingRecord && fp) {
       const existingByFp = await sql`
-        SELECT id, secret_token, ip, fingerprint FROM cgs WHERE fingerprint = ${fp} LIMIT 1
+        SELECT id, secret_token, ip, fingerprint, change_count, window_start FROM cgs WHERE fingerprint = ${fp} LIMIT 1
       `;
       if (existingByFp.length > 0) {
         existingRecord = existingByFp[0];
@@ -126,22 +126,44 @@ export async function POST(req: Request) {
     // C. Check by IP
     if (!existingRecord && ip !== 'unknown') {
       const existingByIp = await sql`
-        SELECT id, secret_token, ip, fingerprint FROM cgs WHERE ip = ${ip} LIMIT 1
+        SELECT id, secret_token, ip, fingerprint, change_count, window_start FROM cgs WHERE ip = ${ip} LIMIT 1
       `;
       if (existingByIp.length > 0) {
         existingRecord = existingByIp[0];
       }
     }
 
-    // If an existing slot is found: UPDATE that slot (allows user to change CG, prevents duplicate spam)
+    // If an existing slot is found: check rate limit for changing CG
     if (existingRecord) {
+      const now = Date.now();
+      const ONE_HOUR = 60 * 60 * 1000;
+      let count = Number(existingRecord.change_count) || 0;
+      let windowStart = Number(existingRecord.window_start) || now;
+
+      if (now - windowStart > ONE_HOUR) {
+        // More than an hour has passed: start a new 1-hour window
+        windowStart = now;
+        count = 1;
+      } else {
+        // Within the 1-hour window: check if they exceeded 5 changes
+        if (count >= 5) {
+          return NextResponse.json(
+            { error: "make up your goddamn mind bitch" },
+            { status: 429 }
+          );
+        }
+        count += 1;
+      }
+
       await sql`
         UPDATE cgs 
         SET cg = ${sanitizedCg}, 
-            timestamp = ${Date.now()},
+            timestamp = ${now},
             ip = ${ip}, 
             secret_token = COALESCE(secret_token, ${token}),
-            fingerprint = COALESCE(${fp}, fingerprint)
+            fingerprint = COALESCE(${fp}, fingerprint),
+            change_count = ${count},
+            window_start = ${windowStart}
         WHERE id = ${existingRecord.id}
       `;
       return NextResponse.json({ success: true, id: existingRecord.id });
@@ -149,8 +171,8 @@ export async function POST(req: Request) {
 
     // Brand new submission: create 1 new slot on the leaderboard
     await sql`
-      INSERT INTO cgs (id, cg, timestamp, ip, secret_token, fingerprint)
-      VALUES (${id}, ${sanitizedCg}, ${Date.now()}, ${ip}, ${token}, ${fp})
+      INSERT INTO cgs (id, cg, timestamp, ip, secret_token, fingerprint, change_count, window_start)
+      VALUES (${id}, ${sanitizedCg}, ${Date.now()}, ${ip}, ${token}, ${fp}, 0, ${Date.now()})
     `;
 
     return NextResponse.json({ success: true, id });

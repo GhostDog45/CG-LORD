@@ -23,7 +23,9 @@ export async function ensureTableExists() {
         timestamp BIGINT NOT NULL,
         ip TEXT NOT NULL,
         secret_token TEXT,
-        fingerprint TEXT
+        fingerprint TEXT,
+        change_count INT DEFAULT 0,
+        window_start BIGINT DEFAULT 0
       );
     `;
     // Ensure columns exist for backwards compatibility
@@ -32,6 +34,12 @@ export async function ensureTableExists() {
     `;
     await sql`
       ALTER TABLE cgs ADD COLUMN IF NOT EXISTS fingerprint TEXT;
+    `;
+    await sql`
+      ALTER TABLE cgs ADD COLUMN IF NOT EXISTS change_count INT DEFAULT 0;
+    `;
+    await sql`
+      ALTER TABLE cgs ADD COLUMN IF NOT EXISTS window_start BIGINT DEFAULT 0;
     `;
     isInitialized = true;
   } catch (error) {

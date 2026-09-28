@@ -117,7 +117,7 @@ export default function Home() {
         if (res.status === 403) {
            setTimeout(() => router.push('/leaderboard'), 1000);
         } else {
-           setTimeout(() => setToastMessage(null), 3000);
+           setTimeout(() => setToastMessage(null), 4500);
            setLoading(false);
         }
       }
