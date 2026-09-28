@@ -70,7 +70,8 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { id, cg, secret_token } = body;
+    const { id, cg, secret_token, fingerprint } = body;
+    const fp = typeof fingerprint === 'string' && fingerprint.length <= 100 ? fingerprint.trim() : null;
 
     // 2. Strict Input validation
     if (
@@ -103,7 +104,7 @@ export async function POST(req: Request) {
 
     // 3. IDOR / Privilege Escalation Prevention: Check if entry already exists
     const existingById = await sql`
-      SELECT id, secret_token, ip FROM cgs WHERE id = ${id} LIMIT 1
+      SELECT id, secret_token, ip, fingerprint FROM cgs WHERE id = ${id} LIMIT 1
     `;
 
     if (existingById.length > 0) {
@@ -119,7 +120,10 @@ export async function POST(req: Request) {
       // Authorized update
       await sql`
         UPDATE cgs 
-        SET cg = ${sanitizedCg}, ip = ${ip}, secret_token = COALESCE(secret_token, ${token})
+        SET cg = ${sanitizedCg}, 
+            ip = ${ip}, 
+            secret_token = COALESCE(secret_token, ${token}),
+            fingerprint = COALESCE(${fp}, fingerprint)
         WHERE id = ${id}
       `;
       return NextResponse.json({ success: true });
@@ -138,10 +142,23 @@ export async function POST(req: Request) {
       }
     }
 
-    // 5. Authorized insertion
+    // 5. One submission per Device Fingerprint check (blocks Incognito & VPN bypass)
+    if (fp) {
+      const existingByFp = await sql`
+        SELECT id FROM cgs WHERE fingerprint = ${fp} LIMIT 1
+      `;
+      if (existingByFp.length > 0) {
+        return NextResponse.json(
+          { error: 'You have already submitted a CG from this device.' },
+          { status: 403 }
+        );
+      }
+    }
+
+    // 6. Authorized insertion
     await sql`
-      INSERT INTO cgs (id, cg, timestamp, ip, secret_token)
-      VALUES (${id}, ${sanitizedCg}, ${Date.now()}, ${ip}, ${token})
+      INSERT INTO cgs (id, cg, timestamp, ip, secret_token, fingerprint)
+      VALUES (${id}, ${sanitizedCg}, ${Date.now()}, ${ip}, ${token}, ${fp})
     `;
 
     return NextResponse.json({ success: true });

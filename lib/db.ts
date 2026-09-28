@@ -22,12 +22,16 @@ export async function ensureTableExists() {
         cg NUMERIC(4, 2) NOT NULL,
         timestamp BIGINT NOT NULL,
         ip TEXT NOT NULL,
-        secret_token TEXT
+        secret_token TEXT,
+        fingerprint TEXT
       );
     `;
-    // Ensure column exists for backwards compatibility
+    // Ensure columns exist for backwards compatibility
     await sql`
       ALTER TABLE cgs ADD COLUMN IF NOT EXISTS secret_token TEXT;
+    `;
+    await sql`
+      ALTER TABLE cgs ADD COLUMN IF NOT EXISTS fingerprint TEXT;
     `;
     isInitialized = true;
   } catch (error) {

@@ -2,18 +2,25 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
+import FingerprintJS from '@fingerprintjs/fingerprintjs';
 
 export default function Home() {
   const [cg, setCg] = useState('');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'welcome' | 'loading' | 'form'>('welcome');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [visitorId, setVisitorId] = useState<string>('');
   const router = useRouter();
 
   useEffect(() => {
     if (window.location.search.includes('edit=true')) {
       setStep('form');
     }
+    // Calculate device hardware/browser fingerprint
+    FingerprintJS.load()
+      .then((fp) => fp.get())
+      .then((result) => setVisitorId(result.visitorId))
+      .catch((err) => console.error('Fingerprint error:', err));
   }, []);
 
   useEffect(() => {
@@ -74,11 +81,27 @@ export default function Home() {
       localStorage.setItem('user_token', userToken);
     }
 
+    let currentFp = visitorId;
+    if (!currentFp) {
+      try {
+        const fp = await FingerprintJS.load();
+        const result = await fp.get();
+        currentFp = result.visitorId;
+      } catch (err) {
+        console.error('Failed to get device fingerprint:', err);
+      }
+    }
+
     try {
       const res = await fetch('/api/cgs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: userId, cg: val, secret_token: userToken }),
+        body: JSON.stringify({ 
+          id: userId, 
+          cg: val, 
+          secret_token: userToken, 
+          fingerprint: currentFp 
+        }),
       });
       
       if (res.ok) {
