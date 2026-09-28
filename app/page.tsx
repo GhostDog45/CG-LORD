@@ -13,51 +13,75 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    if (window.location.search.includes('edit=true')) {
+    const isEditing = window.location.search.includes('edit=true');
+    if (isEditing) {
       setStep('form');
+      return;
     }
-    // Calculate device hardware/browser fingerprint
+
+    // Check if this IP already exists on the leaderboard
+    fetch('/api/cgs/check')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.exists) {
+          if (data.id) {
+            localStorage.setItem('user_id', data.id);
+          }
+          router.replace('/leaderboard');
+        }
+      })
+      .catch((err) => console.error('Check IP error:', err));
+
+    // Calculate device hardware/browser fingerprint and check
     FingerprintJS.load()
       .then((fp) => fp.get())
-      .then((result) => setVisitorId(result.visitorId))
+      .then((result) => {
+        setVisitorId(result.visitorId);
+        fetch(`/api/cgs/check?fp=${encodeURIComponent(result.visitorId)}`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.exists) {
+              if (data.id) {
+                localStorage.setItem('user_id', data.id);
+              }
+              router.replace('/leaderboard');
+            }
+          })
+          .catch(() => {});
+      })
       .catch((err) => console.error('Fingerprint error:', err));
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (step === 'loading') {
-      const hasSubmitted = localStorage.getItem('user_id');
       const isEditing = window.location.search.includes('edit=true');
-      
-      if (hasSubmitted && !isEditing) {
-        // Verify with server if this ID actually exists on the leaderboard
-        fetch('/api/cgs')
-          .then((res) => res.json())
-          .then((entries: any[]) => {
-            const exists = Array.isArray(entries) && entries.some((e) => e.id === hasSubmitted);
-            if (exists) {
-              setToastMessage('You have already submitted a CG.');
-              setTimeout(() => {
-                router.push('/leaderboard');
-              }, 1000);
-            } else {
-              // Stale ID from another session/database reset. Clear it and show the form!
-              localStorage.removeItem('user_id');
-              localStorage.removeItem('user_token');
-              setStep('form');
-            }
-          })
-          .catch(() => {
-            setStep('form');
-          });
-      } else {
-        // Proceed to form
-        const timer = setTimeout(() => {
-          setStep('form');
-        }, 2000);
-        return () => clearTimeout(timer);
+      if (isEditing) {
+        setStep('form');
+        return;
       }
+
+      // Check if IP/device already exists before showing form
+      fetch(`/api/cgs/check${visitorId ? `?fp=${encodeURIComponent(visitorId)}` : ''}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.exists) {
+            if (data.id) {
+              localStorage.setItem('user_id', data.id);
+            }
+            setToastMessage('You have already submitted a CG.');
+            setTimeout(() => {
+              router.replace('/leaderboard');
+            }, 1000);
+          } else {
+            // New user: proceed to form
+            setStep('form');
+          }
+        })
+        .catch(() => {
+          setStep('form');
+        });
     }
-  }, [step, router]);
+  }, [step, router, visitorId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
