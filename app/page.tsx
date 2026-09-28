@@ -105,6 +105,10 @@ export default function Home() {
       });
       
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.id) {
+          localStorage.setItem('user_id', data.id);
+        }
         router.push('/leaderboard');
       } else {
         const data = await res.json().catch(() => ({ error: 'Failed to submit CG. Please try again.' }));

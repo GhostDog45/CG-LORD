@@ -102,66 +102,58 @@ export async function POST(req: Request) {
 
     await ensureTableExists();
 
-    // 3. IDOR / Privilege Escalation Prevention: Check if entry already exists
+    // 3. Find if user/device already has a slot on the leaderboard (by ID, Fingerprint, or IP)
+    let existingRecord: any = null;
+
+    // A. Check by ID
     const existingById = await sql`
       SELECT id, secret_token, ip, fingerprint FROM cgs WHERE id = ${id} LIMIT 1
     `;
-
     if (existingById.length > 0) {
-      const record = existingById[0];
-      // If record has a secret_token, verify caller possesses the same secret_token
-      if (record.secret_token && record.secret_token !== token) {
-        return NextResponse.json(
-          { error: 'Unauthorized: You do not have permission to modify this entry.' },
-          { status: 403 }
-        );
-      }
+      existingRecord = existingById[0];
+    }
 
-      // Authorized update
+    // B. Check by Device Fingerprint
+    if (!existingRecord && fp) {
+      const existingByFp = await sql`
+        SELECT id, secret_token, ip, fingerprint FROM cgs WHERE fingerprint = ${fp} LIMIT 1
+      `;
+      if (existingByFp.length > 0) {
+        existingRecord = existingByFp[0];
+      }
+    }
+
+    // C. Check by IP
+    if (!existingRecord && ip !== 'unknown') {
+      const existingByIp = await sql`
+        SELECT id, secret_token, ip, fingerprint FROM cgs WHERE ip = ${ip} LIMIT 1
+      `;
+      if (existingByIp.length > 0) {
+        existingRecord = existingByIp[0];
+      }
+    }
+
+    // If an existing slot is found: UPDATE that slot (allows user to change CG, prevents duplicate spam)
+    if (existingRecord) {
       await sql`
         UPDATE cgs 
         SET cg = ${sanitizedCg}, 
+            timestamp = ${Date.now()},
             ip = ${ip}, 
             secret_token = COALESCE(secret_token, ${token}),
             fingerprint = COALESCE(${fp}, fingerprint)
-        WHERE id = ${id}
+        WHERE id = ${existingRecord.id}
       `;
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true, id: existingRecord.id });
     }
 
-    // 4. One submission per IP check
-    if (ip !== 'unknown') {
-      const existingByIp = await sql`
-        SELECT id FROM cgs WHERE ip = ${ip} LIMIT 1
-      `;
-      if (existingByIp.length > 0) {
-        return NextResponse.json(
-          { error: 'You have already submitted a CG from this IP address.' },
-          { status: 403 }
-        );
-      }
-    }
-
-    // 5. One submission per Device Fingerprint check (blocks Incognito & VPN bypass)
-    if (fp) {
-      const existingByFp = await sql`
-        SELECT id FROM cgs WHERE fingerprint = ${fp} LIMIT 1
-      `;
-      if (existingByFp.length > 0) {
-        return NextResponse.json(
-          { error: 'You have already submitted a CG from this device.' },
-          { status: 403 }
-        );
-      }
-    }
-
-    // 6. Authorized insertion
+    // Brand new submission: create 1 new slot on the leaderboard
     await sql`
       INSERT INTO cgs (id, cg, timestamp, ip, secret_token, fingerprint)
       VALUES (${id}, ${sanitizedCg}, ${Date.now()}, ${ip}, ${token}, ${fp})
     `;
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, id });
   } catch (error) {
     console.error('POST error:', error);
     return NextResponse.json({ error: 'Failed to process request.' }, { status: 500 });
