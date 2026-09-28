@@ -13,44 +13,16 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    const isEditing = window.location.search.includes('edit=true');
-    if (isEditing) {
+    if (window.location.search.includes('edit=true')) {
       setStep('form');
       return;
     }
-
-    // Check if this IP already exists on the leaderboard
-    fetch('/api/cgs/check')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.exists) {
-          if (data.id) {
-            localStorage.setItem('user_id', data.id);
-          }
-          router.replace('/leaderboard');
-        }
-      })
-      .catch((err) => console.error('Check IP error:', err));
-
-    // Calculate device hardware/browser fingerprint and check
+    // Calculate device hardware/browser fingerprint in background
     FingerprintJS.load()
       .then((fp) => fp.get())
-      .then((result) => {
-        setVisitorId(result.visitorId);
-        fetch(`/api/cgs/check?fp=${encodeURIComponent(result.visitorId)}`)
-          .then((res) => res.json())
-          .then((data) => {
-            if (data.exists) {
-              if (data.id) {
-                localStorage.setItem('user_id', data.id);
-              }
-              router.replace('/leaderboard');
-            }
-          })
-          .catch(() => {});
-      })
+      .then((result) => setVisitorId(result.visitorId))
       .catch((err) => console.error('Fingerprint error:', err));
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     if (step === 'loading') {
@@ -60,26 +32,25 @@ export default function Home() {
         return;
       }
 
-      // Check if IP/device already exists before showing form
-      fetch(`/api/cgs/check${visitorId ? `?fp=${encodeURIComponent(visitorId)}` : ''}`)
+      // Display the "Entering the brain dead zone..." loading message for 2 seconds
+      const minLoadingDelay = new Promise((resolve) => setTimeout(resolve, 2000));
+      
+      const checkPromise = fetch(`/api/cgs/check${visitorId ? `?fp=${encodeURIComponent(visitorId)}` : ''}`)
         .then((res) => res.json())
-        .then((data) => {
-          if (data.exists) {
-            if (data.id) {
-              localStorage.setItem('user_id', data.id);
-            }
-            setToastMessage('You have already submitted a CG.');
-            setTimeout(() => {
-              router.replace('/leaderboard');
-            }, 1000);
-          } else {
-            // New user: proceed to form
-            setStep('form');
+        .catch(() => ({ exists: false }));
+
+      Promise.all([minLoadingDelay, checkPromise]).then(([_, data]) => {
+        if (data && data.exists) {
+          if (data.id) {
+            localStorage.setItem('user_id', data.id);
           }
-        })
-        .catch(() => {
+          // After loading message, take user directly to leaderboard
+          router.push('/leaderboard');
+        } else {
+          // New user: transition to the CG input form
           setStep('form');
-        });
+        }
+      });
     }
   }, [step, router, visitorId]);
 
