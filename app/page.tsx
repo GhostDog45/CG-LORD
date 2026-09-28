@@ -22,12 +22,25 @@ export default function Home() {
       const isEditing = window.location.search.includes('edit=true');
       
       if (hasSubmitted && !isEditing) {
-        // Already submitted, show toast immediately over the loading screen
-        setToastMessage('You have already submitted a CG.');
-        const timer = setTimeout(() => {
-          router.push('/leaderboard');
-        }, 1000);
-        return () => clearTimeout(timer);
+        // Verify with server if this ID actually exists on the leaderboard
+        fetch('/api/cgs')
+          .then((res) => res.json())
+          .then((entries: any[]) => {
+            const exists = Array.isArray(entries) && entries.some((e) => e.id === hasSubmitted);
+            if (exists) {
+              setToastMessage('You have already submitted a CG.');
+              setTimeout(() => {
+                router.push('/leaderboard');
+              }, 1000);
+            } else {
+              // Stale ID from another session/database reset. Clear it and show the form!
+              localStorage.removeItem('user_id');
+              setStep('form');
+            }
+          })
+          .catch(() => {
+            setStep('form');
+          });
       } else {
         // Proceed to form
         const timer = setTimeout(() => {
